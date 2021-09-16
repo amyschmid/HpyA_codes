@@ -1,0 +1,15 @@
+initialize growth folder
+_R package Dependencies_:
+* grofit version 1.1-1
+* ggplot
+* ggpubr
+* forcats
+* readxl
+* bestNormalize
+* EnvStats
+* stats
+* moments
+* gridExtra
+* stats 
+* effsize
+* boot
