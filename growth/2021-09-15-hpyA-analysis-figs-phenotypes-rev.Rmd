@@ -1,0 +1,426 @@
+---
+title: "Analysis of growth rates in low salt"
+output: html_document
+---
+#Install and load required packages
+```{r}
+#Install grofit from source if needed. no
+install.packages("grofit_1.1.1-1.tar.gz", repos=NULL, type = "source")
+```
+
+```{r load required libraries}
+# this is the function we will use to check for installed packages and load them. 
+using<-function(...) {
+    libs<-unlist(list(...))
+    req<-unlist(lapply(libs,require,character.only=TRUE))
+    need<-libs[req==FALSE]
+    if(length(need)>0){ 
+        install.packages(need)
+        lapply(need,require,character.only=TRUE)
+    }
+}
+
+using ( "ggplot2",
+       "ggpubr",
+       "forcats",
+       "readxl",
+       "grofit",
+       "bestNormalize",
+       "EnvStats",
+       "stats",
+       "moments",
+       "gridExtra",
+       "stats", 
+       "effsize",
+       "boot")
+
+library(grofit)
+library(ggplot2)
+library(ggpubr)
+library(forcats)
+library(readxl)
+library(bestNormalize)
+library(EnvStats)
+library(stats)
+library(moments)
+library(gridExtra)
+library(stats)
+library(effsize)
+library(boot)
+```
+
+
+## Comparing growth rates
+
+This is the method used to compare the growth rates obtained by growing Hbt sal cells (WT parents and hpyA KO mutants) in regular complete medium (CM) and reduced salt medium (called M). It uses the package grofit to obtain a growth rate (umax) based on a logistic growth equation. Then the rate of each replicate is obtained as a ratio of the rate in low salt to the same replicate's growth rate in optimal media. These ratios are compared for 9 biological replicates each of WT and KO strains.
+Grofit input requires a particular format explained in the manual (https://rdrr.io/cran/grofit/), with each row corresponding to the same replicate in both the time and data input files.
+
+```{r grofit_measurement}
+datainput=read_excel("combined_grofit_datainput2.xlsx",col_names=FALSE)
+timeinput=read_excel("combined_grofit_timeinput.xlsx",col_names=FALSE)
+combined_logisticrates=gcFit(timeinput,datainput,grofit.control(interactive=FALSE,model.type="logistic",suppress.messages=TRUE))
+#a logistic model was found to be the best among the alternatives (gompertz, richards, etc)
+```
+
+## Sorting out the data and obtaining growth rate ratios
+
+```{r tidyup}
+ratesummary=combined_logisticrates$gcTable[,1:12]
+colnames(ratesummary)[1:3]=c("Strain","Medium","Replicate")
+l=max(ratesummary$Replicate)
+ratiosmatrix=as.data.frame(matrix(data=NA,nrow=l,ncol=2))
+colnames(ratiosmatrix)=c("Ratio","Strain")
+for (i in (1:l)) {
+  replrows=ratesummary[ratesummary$Replicate==i,]
+  replrows
+  reploptimal=replrows$mu.model[replrows$Medium=="CM"]
+  repllow=replrows$mu.model[replrows$Medium=="M"]
+  ratiosmatrix$Ratio[i]=repllow/reploptimal
+  ratiosmatrix$Strain[i]=replrows$Strain[1]
+}
+
+```
+### Checking the distribution of the mu.model across replicates to ensure normality assumption for t.test 
+```{r}
+WT.cm <- subset(ratesummary, Strain == "WT" & Medium == "CM")
+WT.m <- subset(ratesummary, Strain == "WT" & Medium == "M")
+KO.cm <- subset(ratesummary, Strain == "KO" & Medium == "CM")
+KO.m <- subset(ratesummary, Strain == "KO" & Medium == "M")
+
+hist(WT.cm$mu.model, breaks = 20)
+hist(WT.m$mu.model, breaks = 20)
+hist(KO.cm$mu.model, breaks = 20)
+hist(KO.m$mu.model, breaks =20)
+
+#there are a few outliers, but t-test should be ok given the tight distribution of replicates for each condition / strain.
+```
+
+
+### plotting the ratio results as a dotplot only (Fig 1B)
+```{r}
+pdf(file = "growth.rate.ratios.1Brev.pdf", width = 5, height = 3)
+group.colors<-c(KO = "lightcoral", WT = "cadetblue3") 
+ggdotplot(ratiosmatrix, x = "Strain", y = "Ratio", position = position_jitter(0.1),
+          fill = "Strain", color = "Strain",  binwidth = 0.05, alpha = 0.7) + 
+  scale_color_manual(values = group.colors) +
+  scale_fill_manual(values = group.colors) +
+  stat_summary (fun.y = median, 
+               fun.ymin = median,
+               fun.ymax = median,
+               geom = 'crossbar', width = 0.5, 
+               aes(color = Strain)) +
+  theme( axis.text.x  = element_text(size = 20), axis.text.y = element_text(size = 20), axis.title = element_text(size = 22), legend.position = "none") +
+  labs(x = 'Strain', y = 'Growth rate ratio (reduced : optimal salt)') + 
+  geom_signif(data=ratiosmatrix,comparisons = list(c("KO","WT")),
+              test="t.test",map_signif_level=TRUE) +
+  
+  NULL
+dev.off()
+```
+
+
+
+
+
+### Plotting raw growth data, Figure 1A.
+```{r}
+allgrowthcurves=read_excel("allgrowthcurves.xlsx",sheet="Sheet2")
+#file containing flask growth data
+time=116
+#length of time (hrs) onto which growth data should be interpolated
+
+replnames=unique(allgrowthcurves$Replicate)
+#Names of biological of replicates in input raw data
+l=length(replnames)
+
+#Outputmatrix which will receive interpolated data, in the same format as input matrix
+outputmatrix=as.data.frame(matrix(data=NA,nrow=time*2*l,ncol=4))
+colnames(outputmatrix)=colnames(allgrowthcurves)
+```
+
+### Interpolating using linear interpolation in approx function; found that it works better than spline or other interpolations.
+```{r}
+
+
+  for (i in (1:l)) {
+    a=replnames[i]
+    b=allgrowthcurves[allgrowthcurves$Replicate==paste(a),]
+    c=b$Variable[1]
+    
+    interpolated=approx(b$Time,b$Value,n=232)
+    
+    outputmatrix[(232*(i-1)+1):(232*i),1]=interpolated$x
+    outputmatrix[(232*(i-1)+1):(232*i),2]=c
+    outputmatrix[(232*(i-1)+1):(232*i),3]=a
+    outputmatrix[(232*(i-1)+1):(232*i),4]=interpolated$y
+  }
+```
+
+### Making the raw growth curve plot, Fig 1A
+```{r}
+pdf("Fig1Arev.pdf", width = 5, height = 3)
+ggplot(outputmatrix,aes(x=Time,y=Value,colour=Variable))+
+  scale_colour_manual(values=c("dark red","lightcoral","blue","cadetblue3"))+
+  scale_fill_manual(values=c("dark red","lightcoral","blue","cadetblue3"))+
+  geom_smooth(se=TRUE,level=0.95,alpha =0.3, lwd = 1, aes(col=Variable,fill=Variable))+
+  theme(panel.background=element_rect(fill="white",colour="black"))+
+  
+  #geom_line(size=0.1,alpha=0.3,aes(group=Replicate))+ #removed these replicate lines. makes the figure look messy / confusing. CI already incorporated into the figure, and the audience has ready access to the raw data in the supplement
+  scale_y_log10() + 
+  xlab("Time (h)")+ylab("OD600") +
+  
+theme( axis.text.x  = element_text(size = 20), axis.text.y = element_text(size = 20), axis.title = element_text(size = 22), legend.text = element_text (size = 18)) +
+  NULL
+dev.off()
+
+```
+
+## Morphology data analysis and plotting (Fig 2)
+### load the data
+```{r load}
+alllog=read.delim("Microscopy_logphase_data_no-1strow-note.txt", sep = "\t")
+my_comparisons=list(c("CMWT","MKO"),c("CMKO","MKO"),c("MWT","MKO"))
+
+m=read_excel("Microscopy_HS149_90_117.xlsx")
+plasmid_comparisons=list(c("CMWT","CMKO"),c("HS117_CM","CMKO"),c("CMWT","HS117_CM"),c("MWT","MKO"),c("MWT","HS117_M"),c("HS117_M","MKO"))
+
+#where KO is hpyA knockout strain, WT is ura3 parent strain, HS117 is complementation strain, M is low salt medium and CM is complete medium (rich optimal salt)
+```
+
+
+
+### Analysis of circularity to detect significance of the difference in circularity between strains.
+#### Checking for normality
+```{r}
+# test for normality
+cmko <- subset(m, Condition =="CMKO")
+mko <- subset(m, Condition =="MKO")
+cmwt <- subset(m, Condition =="CMWT")
+mwt <- subset(m, Condition =="MWT")
+cm.comp <- subset (m, Condition == "HS117_CM")
+m.comp <- subset (m, Condition == "HS117_M")
+#qqPlot(cmko$Circularity)  
+ggqqplot(cmko$Circularity) #strong deviation at upper end from normality (saturation at 1.0)
+ggqqplot(mko$Circularity) #strong deviation at both tails from normality (saturation at 1.0)
+ggqqplot(cmwt$Circularity) #approximately normal
+ggqqplot(mwt$Circularity) #strong deviation at upper end from normality (saturation at 1.0)
+ggqqplot(cm.comp$Circularity) #approximately normal, like wild type
+ggqqplot(m.comp$Circularity) #strong deviation from normality
+
+#need Shaprio-Wilk test to make sure they are not normal
+```
+#### Normality test - shapiro-wilk
+```{r}
+length(cmko$Circularity)
+length(mko$Circularity)
+length(cmwt$Circularity)
+length(mwt$Circularity)
+length(cm.comp$Circularity)
+length(m.comp$Circularity)
+shapiro.test(cmko$Circularity)  #significantly non-normal, caveat - high n. 
+shapiro.test(mko$Circularity) #significantly non-normal, caveat - high n. 
+shapiro.test(cmwt$Circularity) #not significantly different from normal despite high n.
+shapiro.test(mwt$Circularity)  #significantly non-normal, caveat - high n. 
+shapiro.test  (cm.comp$Circularity) #significantly non-normal - could be due to larger number of outliers than in WT.
+shapiro.test (m.comp$Circularity) #significantly non-normal
+
+#parametric tests definitely not appropriate given the non-normality of the distributions.
+#Also n is very high, so non-parametric tests such as Wilcoxon are also not appropriate. 
+#use bootstrapped resampling to detect the difference in CI between shape distributions of each strain.
+```
+
+#### Bootstrapped resampling of the median, difference in CI between the bootstrapped distributions.
+
+```{r}
+#call the function for median for random distribution
+f <- function (data, i) {
+  d <- data[i,]
+  med <- median(d)
+  return(med)
+}
+
+#compute bootstrapped CI for each dataset
+#KO in CM
+bootobject.cmko <- boot(data = as.data.frame(cmko$Circularity), statistic = f, R = 1000) #take a vector of data, sample the median 1000 times
+bootobject.cmko
+boot.ci(bootobject.cmko, type = "bca") #compute confidence intervals
+
+#KO in M
+bootobject.mko <- boot(data = as.data.frame(mko$Circularity), statistic = f, R = 1000) #take a vector of data, sample the median 1000 times
+bootobject.mko
+boot.ci(bootobject.mko, type = "bca") #compute confidence intervals
+
+#WT in CM
+bootobject.cmwt <- boot(data = as.data.frame(cmwt$Circularity), statistic = f, R = 1000) #take a vector of data, sample the median 1000 times
+bootobject.cmwt
+boot.ci(bootobject.cmwt, type = "bca") #compute confidence intervals
+
+#WT in M
+bootobject.mwt <- boot(data = as.data.frame(mwt$Circularity), statistic = f, R = 1000) #take a vector of data, sample the median 1000 times
+bootobject.mwt
+boot.ci(bootobject.mwt, type = "bca") #compute confidence intervals
+
+#complemented strain in CM
+bootobject.cm.comp <- boot(data = as.data.frame(cm.comp$Circularity), statistic = f, R = 1000) #take a vector of data, sample the median 1000 times
+bootobject.cm.comp
+boot.ci(bootobject.cm.comp, type = "bca") #compute confidence intervals
+
+#complemented strain in M
+
+bootobject.m.comp <- boot(data = as.data.frame(m.comp$Circularity), statistic = f, R = 2000) #take a vector of data, sample the median 1000 times
+bootobject.m.comp
+boot.ci(bootobject.m.comp, type = "bca") #compute confidence intervals
+
+
+
+
+
+```
+
+
+##  circularity plot, dots only with median crossbar and bootstrap confidence intervals, adding in complementation tests with HA-tagged HpyA. Fig 2.
+```{r}
+pdf(file = "circularlity.rev-comp.pdf", width = 5, height = 3)
+group.colors<-c(CMKO = "dark red", CMWT = "dark blue", MKO = "lightcoral", MWT = "cadetblue3", HS117_CM = "black", HS117_M = "dark grey") 
+ggdotplot(m, x = "Condition", y = "Circularity", position = position_jitter(0.1),
+          fill = "Condition",  binwidth = 0.015, alpha = 0.5, color = NA ) +
+
+  scale_color_manual(values = group.colors) +
+  scale_fill_manual(values = group.colors) +
+  stat_summary (fun = median, 
+               fun.min = median,
+               fun.max = median,
+               geom = 'crossbar', width = 0.75, 
+               aes(color = Condition)) +
+  theme( axis.text.x  = element_text(size = 14), axis.text.y = element_text(size = 14), axis.title = element_text(size = 14), legend.position = "none") +
+  labs(x = 'Strain and condition', y = 'Circularity') + 
+ 
+  annotate("rect", xmin = 0.6, xmax = 1.4, ymin = 0.532, ymax = 0.597, alpha = 0.3, fill = "dark blue") + #ymin and ymax are bootstrapped BCA confidence intervals of the median of the distribution
+  annotate("rect", xmin = 1.6, xmax = 2.4, ymin = 0.6942,  ymax = 0.7637, alpha = 0.3, fill = "dark red")  +  
+  annotate("rect", xmin = 2.6, xmax = 3.4, ymin = 0.466, ymax= 0.517, alpha = 0.2, fill = "black") + 
+  annotate("rect", xmin = 3.6, xmax = 4.4, ymin = 0.7551, ymax = 0.8084, alpha = 0.3, fill = "cyan") +
+  annotate("rect", xmin = 4.6, xmax = 5.4, ymin = 0.8273,  ymax = 0.8764, alpha = 0.4, fill = "lightcoral") + 
+  annotate("rect", xmin = 5.6, xmax = 6.4, ymin = 0.737, ymax = 0.784, alpha = 0.6, fill = "grey") + 
+       
+  #geom_signif(data=ratiosmatrix,comparisons = list(c("KO","WT")),
+             # test="t.test",map_signif_level=TRUE) +
+ # stat_compare_means(comparisons=my_comparisons,method="t.test",label="p.signif") + #ttest not appropriate given the skewed distribution. Will need to do a transform on the data to run a parametric test.
+ 
+  NULL
+dev.off()
+
+
+#median of complemented strain is similar to that of WT, but is even less circular than WT. Need to show representative images of the complemented cells.
+```
+
+## Supplementary Figure S1: Plotting growth rates under optimal conditions (Fig S1)
+```{r plotting}
+optimalonly=ratesummary[ratesummary$Medium=="CM",]
+
+group.colors<-c(KO = "dark red", WT = "blue") 
+
+
+p.opt <- ggplot(optimalonly, aes(x=fct_inorder(Strain), y=mu.model, fill=Strain)) +
+  #geom_boxplot(fill=c("lightblue","red")) + 
+  geom_dotplot(binaxis="y",stackdir="center",dotsize=0.75) +
+  geom_signif(data=optimalonly,comparisons = list(c("KO","WT")),test="t.test",map_signif_level=TRUE)+theme(panel.background = element_blank(),panel.border = element_rect(colour = "black", fill=NA, size=1)) + 
+   scale_color_manual(values = group.colors) +
+  scale_fill_manual(values = group.colors) +
+  xlab("Strain")+ylab("Growth rate in optimal salt") +
+    theme( axis.text.x  = element_text(size = 20), axis.text.y = element_text(size = 20), axis.title = element_text(size = 22), legend.position = "none") +
+  stat_summary (fun.y = median, 
+               fun.ymin = median,
+               fun.ymax = median,
+               geom = 'crossbar', width = 0.5, 
+               aes(color = Strain)) +
+  #ggtitle("HpyA KO has no growth defect in optimal salt")
+  NULL
+
+pdf("figS1_AKS.pdf")
+grid.arrange(p.opt, ncol = 1)
+dev.off()
+```
+
+### Fig S2 CFU vs OD
+```{r load}
+cfu_OD_counts=read_excel("CFU_OD_data.xlsx",sheet="Graphinput")
+#my_comparisons=list(c("CMWT","MKO"),c("CMKO","MKO"),c("MWT","MKO"))
+#add log2 OD column
+cfu_OD_counts$log2OD <- log2(cfu_OD_counts$OD)
+```
+
+
+
+
+
+#### Is CFU correlated with OD across the strains / conditions?
+```{r}
+
+cfu.cmko <- subset(cfu_OD_counts, cfu_OD_counts$Condition == "KOCM")
+cfu.cmwt <- subset(cfu_OD_counts, cfu_OD_counts$Condition == "WTCM")
+cfu.mko <- subset(cfu_OD_counts, cfu_OD_counts$Condition == "KOM")
+cfu.mwt <- subset (cfu_OD_counts, cfu_OD_counts$Condition == "WTM")
+
+cor.test(cfu.cmko$OD, cfu.cmko$CFU, method = "spearman")
+cor.test(cfu.cmwt$OD, cfu.cmwt$CFU, method = "spearman")
+cor.test(cfu.mko$OD, cfu.mko$CFU, method = "spearman")
+cor.test(cfu.mwt$OD, cfu.mwt$CFU, method = "spearman")
+
+# In low salt media, CFU to OD correlation goes down, esp for WT due to one or two outlier points. Used Spearman correlation, which is robust to outliers and correctly computes correlation and signif of correlation in the presence of these outliers.
+```
+
+#### Final plot, Fig S2
+
+```{r}
+p.cmwt<-ggscatter(cfu.cmwt, "log2OD", "CFU",
+   add = "reg.line",  # Add regression line
+   add.params = list(color = "dark blue", fill = "blue"), # Customize reg. line
+   conf.int = TRUE, # Add confidence interval
+   title = "WT in CM",
+   font.label = c(12, "plain"),
+   ylab = "CFU/mL"
+   ) + 
+# Add correlation coefficient and significance of correlation
+  scale_y_log10() + 
+  stat_cor(method = "spearman", label.x = -4, label.y = 8.5)
+
+p.cmko<-ggscatter(cfu.cmko, "log2OD", y = "CFU",
+   add = "reg.line",  # Add regression line
+   add.params = list(color = "dark red", fill = "red"), # Customize reg. line
+   conf.int = TRUE, # Add confidence interval
+   title = "KO in CM",
+   ylab = "CFU/mL"
+   ) + 
+  scale_y_log10() +
+# Add correlation coefficient and significance of correlation
+stat_cor(method = "spearman", label.x = -4, label.y = 8.5)
+
+p.mwt<-ggscatter(cfu.mwt, x = "log2OD", y = "CFU",
+   add = "reg.line",  # Add regression line
+   add.params = list(color = "cadetblue3", fill = "cadetblue3"), # Customize reg. line
+   conf.int = TRUE, # Add confidence interval
+   title  =  "WT in M",
+   ylab = "CFU/mL"
+   ) + 
+# Add correlation coefficient and significance of correlation
+  scale_y_log10() + 
+  stat_cor(method = "spearman", label.x = -4, label.y = 8.5)
+
+p.mko<-ggscatter(cfu.mko, x = "log2OD", y = "CFU",
+   add = "reg.line",  # Add regression line
+   add.params = list(color = "light coral", fill = "light coral"), # Customize reg. line
+   conf.int = TRUE, # Add confidence interval
+   title  = "KO in M",
+   ylab = "CFU/mL"
+   ) + 
+# Add correlation coefficient and significance of correlation
+  scale_y_log10() + 
+  stat_cor(method = "spearman", label.x = -4, label.y = 8)
+
+pdf("FigS2_AKS.pdf")
+grid.arrange(p.cmwt,p.mwt,p.cmko,p.mko, nrow=2, ncol = 2)
+dev.off()
+```
+
+
+
