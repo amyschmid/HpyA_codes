@@ -1,0 +1,14 @@
+RNA-seq analysis code dependencies:
+
+ggplot2
+DESeq2
+apeglm
+regionReport
+DT
+ggrepel
+RColorBrewer
+pheatmap
+dendextend
+rrcov
+bazar
+VennDiagram
