@@ -91,7 +91,7 @@ ggplot(mydf.norm.count, aes(rowname, whole.gene.norm.count)) + geom_point() + th
 
 ### Clustering: variance stabilizing transformation and batch-effect correction
 ```{r clustering, warning=FALSE}
-# The variance stabilizing transformation is obtained using the vst() function. This batch-corrected data is used only for visualisation (PCA plots and heatmaps), not for differnetial expression analysis. For DE, Batch is included as a term in the forumla above, and is subsequently not included in the contrast provided for the results function below, which is sufficient for batch correction in DESeq2.
+# The variance stabilizing transformation is obtained using the vst() function. This batch-corrected data is used only for visualisation (PCA plots and heatmaps), not for differential expression analysis. For DE, Batch is included as a term in the forumla above, and is subsequently not included in the contrast provided for the results function below, which is sufficient for batch correction in DESeq2.
 
 vsd=vst(ddsDE)
 #vsd <- tryCatch(rlog(ddsDE), error = function(e) { rlog(ddsDE, fitType = 'mean') })
@@ -192,7 +192,7 @@ plotMA(Res_genotypeinoptimal,colNonSig="grey",colSig="red",colLine="black")
 
 ### The effect of hpyA KO in low-salt conditions
 ```{r hpyAKOinlowsalt, warning=FALSE}
-#Steps here follow the same logic as those above, except that the comparison is for the effect of genotype alone (rather than condition*gentoype interaction) in a given media condition (low salt).
+#Steps here follow the same logic as those above, except that the comparison is for the effect of genotype alone (rather than condition*genotype interaction) in a given media condition (low salt).
 
 #Get data only from samples in low salt conditions
 lowindex=which(metafile$Salt=="low")
@@ -241,7 +241,7 @@ plotMA(Res_genotypeinlow,colNonSig="grey",colSig="red",colLine="black")
 
 ### The effect of low salt on Hbt salinarum parent strain (here considered wild type, "WT")
 ```{r lowsaltinWT, warning=FALSE}
-#Steps here follow the same logic as those above, except that the comparison is for the effect of condition alone (rather than condition*gentoype interaction or genotype) in a given genotype (WT).
+#Steps here follow the same logic as those above, except that the comparison is for the effect of condition alone (rather than condition*genotype interaction or genotype) in a given genotype (WT).
 
 #Get data only from WT samples
 saltindex=which(metafile$Genotype=="WT")
@@ -289,7 +289,7 @@ plotMA(Res_saltinWT,colNonSig="grey",colSig="red",colLine="black")
 ```
 ### The effect of low salt on Hbt sal in the hpyA KO genotype
 ```{r lowsaltinKO, warning=FALSE}
-#Steps here follow the same logic as those above, except that the comparison is for the effect of condition alone (rather than condition*gentoype interaction or genotype) in a given genotype (WT).
+#Steps here follow the same logic as those above, except that the comparison is for the effect of condition alone (rather than condition*genotype interaction or genotype) in a given genotype (WT).
 
 #Get data only from WT samples
 KOsaltindex=which(metafile$Genotype=="KO")
