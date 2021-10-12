@@ -1,7 +1,12 @@
-Dependencies for ChIP-seq analysis
-* BEDTools version 2.30.0
+Dependencies for ChIP-seq analysis in command line
+*BEDTools version 2.30.0
 * FastQC
 * SAMTools
 * Bowtie2
 * TrimGalore!
 * FastQC
+* MOSAiCS 
+* MACS2 v 2.1.1
+
+Dependencies for ChIP-seq analysis in R (v 4.1.1):
+* 
