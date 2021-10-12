@@ -1,12 +1,19 @@
-Dependencies for ChIP-seq analysis in command line
-*BEDTools version 2.30.0
+Package dependencies and versions for ChIP-seq analysis in command line
+* BEDTools version 2.30.0
 * FastQC
 * SAMTools
 * Bowtie2
 * TrimGalore!
-* FastQC
-* MOSAiCS 
+* FastQC 
 * MACS2 v 2.1.1
 
-Dependencies for ChIP-seq analysis in R (v 4.1.1):
-* 
+Package dependencies and versions for ChIP-seq analysis and visualization in R (v 4.1.1):
+* mosaics 2.30.0
+* bazar 1.0.11
+* Rcpp 1.0.7
+* [1] AnnotationHub_3.0.1    BiocFileCache_2.0.0    dbplyr_2.1.1           rtracklayer_1.52.1    
+ [5] openxlsx_4.2.4         GenomicFeatures_1.44.2 AnnotationDbi_1.54.1   Biobase_2.52.0        
+ [9] GenomicRanges_1.44.0   GenomeInfoDb_1.28.4    IRanges_2.26.0         S4Vectors_0.30.2      
+[13] BiocGenerics_0.38.0    forcats_0.5.1          stringr_1.4.0          dplyr_1.0.7           
+[17] purrr_0.3.4            readr_2.0.2            tidyr_1.1.4            tibble_3.1.5          
+[21] ggplot2_3.3.5          tidyverse_1.3.1 
