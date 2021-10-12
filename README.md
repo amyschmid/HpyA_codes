@@ -1,4 +1,4 @@
 # HpyA_codes
-Codes that are referred to in the paper "An archaeal histone-like protein functions as a transcriptional regulator of salt stress response"
-Codesa are in the form of R markdown files, with comments and explanations for the codes within them
-Each code is in its own folder describing its function
+Here we report code used to analyze data and make figures for the paper "An archaeal histone-like protein functions as a transcriptional regulator of salt stress response", Sakrikar and Schmid, Nucleic Acids Research.
+Code in the form of commented R markdown files, with input files provided
+Each set of Rmd files are in folders corresponding to the types of data analyzed
