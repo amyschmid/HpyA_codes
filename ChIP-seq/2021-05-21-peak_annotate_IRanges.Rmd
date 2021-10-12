@@ -1,0 +1,354 @@
+---
+title: "2021-05-25-peak_annotation_IRanges_hpyA"
+output: html_notebook
+---
+
+##Annotating peaks!
+
+### Install packages
+```{r}
+BiocManager::install(c("GenomicRanges","rtracklayer", "ChIPseeker", "IRanges", "AnnotationHub"))
+```
+
+### Call libraries of packages (install these too if haven't already)
+```{r}
+library(tidyverse)
+library(GenomicRanges)
+library(GenomicFeatures)
+library(IRanges)
+library(openxlsx)
+library(rtracklayer)
+library(AnnotationHub)
+library(dplyr)
+```
+
+
+### Read in GFF files of annotations for Hsal
+see also https://stackoverflow.com/questions/29253412/finding-intergenic-regions
+```{r}
+gff <- GenomicFeatures::makeTxDbFromGFF("20181113_hbt_GCF_000006805.1_ASM680v1_genomic.gff", format = "gff")
+gff.df <- read_csv("20181113_hbt_GCF_000006805.1_ASM680v1_genomic.gff.key.csv")
+
+#subset whole genome gff into promoter only (i.e. intergenic ranges) and gene only structures
+genes.only <- GenomicFeatures::genes(gff)
+genes.only.redu <- reduce(genes.only, ignore.strand = T)
+ig <- gaps(genes.only.redu)
+ig.only <- ig[strand(ig) == "*"] ## This step is important to avoid duplicate entries for each gene.
+
+#pro250 <- GenomicRanges::promoters(genes.only, upstream = 250, downstream = 0)
+## Warning: this range of sequences misses large promoters and 3' UTRs (i.e. some IG space is skipped in the overlaps with ChIP-seq peaks). But comment this in if you want a shorter promoter region.
+
+pro500 <- GenomicRanges::promoters(genes.only, upstream = 500, downstream = 0)
+#gene.plus.pro250 <- GenomicRanges::punion(genes.only, pro250)
+#gene.plus.pro500 <- GenomicRanges::punion(genes.only, pro500)
+```
+
+
+
+### Find overlaps between peak genomic ranges and custom annotation objects (promoters vs genes) for each condition, and prepare all the information for supplementary table.
+
+#### normal salt, log phase
+```{r}
+hpyA.pks <- rtracklayer::import("peaklists/Finalmanual_logcm_noreps.bed", format = "BED")
+  hpyA.pks.df <- as.data.frame(hpyA.pks)
+  
+  #add informative meta data
+  hpyA.pks$peakID <- seq(1,length(hpyA.pks)) 
+  hpyA.pks$peakwidth <- hpyA.pks.df$width
+  
+  #create hits objects of the overlaps (all peak widths have been standardized to 300bp wide. They must overlap a genomic feature by at least one third (100bps) to be called.) adjusting the overlap requirement changes the stringency of my peak annotation. 
+  GenomicRanges::findOverlaps(genes.only, hpyA.pks, ignore.strand=T, minoverlap = 100) -> genes
+  GenomicRanges::findOverlaps(ig.only, hpyA.pks, ignore.strand=T, minoverlap = 100) -> promoters
+  GenomicRanges::findOverlaps(pro500, hpyA.pks, ignore.strand = T, minoverlap = 100) -> promoters2
+  
+  #get IRanges from hits objects and add informative metadata
+  genelist <- genes.only[queryHits(genes)] 
+  genelist$type <- rep("genic", length(genes))
+  genelist$reps <- hpyA.pks$name[subjectHits(genes)]
+  pintersect(genes.only[queryHits(genes)], hpyA.pks[subjectHits(genes)]) -> overlaps
+  genelist$overlap <- width(overlaps)
+  genelist$peakID <- hpyA.pks$peakID[subjectHits(genes)]
+  genelist$pk.start <- hpyA.pks.df$start[subjectHits(genes)]
+  genelist$pk.end <- hpyA.pks.df$end[subjectHits(genes)]
+  
+  prolist <- ig.only[queryHits(promoters)]
+  prolist$type <- rep("promoter", length(promoters))
+  prolist$reps <- hpyA.pks$name[subjectHits(promoters)]
+  pintersect(ig.only[queryHits(promoters)], hpyA.pks[subjectHits(promoters)]) -> overlaps
+  prolist$overlap <- width(overlaps)
+  prolist$peakID <- hpyA.pks$peakID[subjectHits(promoters)]
+  prolist$gene_id <- NA
+  prolist$pk.start <- hpyA.pks.df$start[subjectHits(promoters)]
+  prolist$pk.end <- hpyA.pks.df$end[subjectHits(promoters)]
+  
+  prolist2 <- pro500[queryHits(promoters2)]
+  prolist2$type <- rep("promoter500", length(promoters2))
+  prolist2$reps <- hpyA.pks$name[subjectHits(promoters2)]
+ pintersect(pro500[queryHits(promoters2)], hpyA.pks[subjectHits(promoters2)]) -> overlaps
+prolist2$overlap <- width(overlaps)
+  prolist2$peakID <- hpyA.pks$peakID[subjectHits(promoters2)]
+   prolist2$pk.start <- hpyA.pks.df$start[subjectHits(promoters2)]
+  prolist2$pk.end <- hpyA.pks.df$end[subjectHits(promoters2)]
+
+
+  #convert seperate IRanges to Dataframes
+  seqs <- seq(1, length(genes))
+  as.data.frame(prolist) -> one
+  rownames(one) <- NULL
+  as.data.frame(genelist, row.names(seqs)) -> two
+  rownames(two) <- NULL
+  as.data.frame(prolist2) -> three
+  rownames(three) <- NULL  
+  
+  #combine dfs (gene hits and promoter hits)
+  #final <- rbind(one, two) %>% arrange(seqnames, start, peakID)
+   final <- dplyr::bind_rows(one, two, three) %>% arrange(seqnames, start, peakID)
+
+
+
+    #colnames(final)[6] <- "locus_tag"
+    #colnames(final)[10] <- "locus_tag"
+    colnames(final)[c(2,3,10)] <- c("overlap.start", "overlap.end", "locus_tag")
+  #merge with gff information (get NCBI annotations and locus names)
+ 
+
+gff.df[(gff.df$locus_tag %in% final$locus_tag &  !is.na(gff.df$locus_tag)),] -> tmp
+#tmp <- dplyr::filter (gff.df,  gff.df$locus_tag %in% final$locus_tag, na.rm=TRUE)
+
+  tmp[ c(2,3,4,6,7,10)] -> tmp2
+  left_join(final, tmp2, by = "locus_tag", na.rm=TRUE) -> final.out.logcm
+  colnames(final.out.logcm)[c(15,16)] <- c("gene.start", "gene.end")
+final.out.logcm$condition <- "optimal.exponential"
+```
+
+#### low salt, log phase
+```{r}
+hpyA.pks <- rtracklayer::import("peaklists/Finalmanual_loglow_nogenes.bed", format = "BED")
+  hpyA.pks.df <- as.data.frame(hpyA.pks)
+  
+  #add informative meta data
+  hpyA.pks$peakID <- seq((max(final.out.logcm$peakID) + 1), max(final.out.logcm$peakID) +length(hpyA.pks))
+  hpyA.pks$peakwidth <- hpyA.pks.df$width
+  
+  #create hits objects of the overlaps (all peak widths have been standardized to 300bp wide. They must overlap a genomic feature by at least one third (100bps) to be called.) adjusting the overlap requirement changes the stringency of my peak annotation. 
+  GenomicRanges::findOverlaps(genes.only, hpyA.pks, ignore.strand=T, minoverlap = 100) -> genes
+  GenomicRanges::findOverlaps(ig.only, hpyA.pks, ignore.strand=T, minoverlap = 100) -> promoters
+  GenomicRanges::findOverlaps(pro500, hpyA.pks, ignore.strand = T, minoverlap = 100) -> promoters2
+  
+  #get IRanges from hits objects and add informative metadata
+  genelist <- genes.only[queryHits(genes)] 
+  genelist$type <- rep("genic", length(genes))
+  genelist$reps <- hpyA.pks$name[subjectHits(genes)]
+  pintersect(genes.only[queryHits(genes)], hpyA.pks[subjectHits(genes)]) -> overlaps
+  genelist$overlap <- width(overlaps)
+  genelist$peakID <- hpyA.pks$peakID[subjectHits(genes)]
+   genelist$pk.start <- hpyA.pks.df$start[subjectHits(genes)]
+  genelist$pk.end <- hpyA.pks.df$end[subjectHits(genes)]
+  
+  prolist <- ig.only[queryHits(promoters)]
+  prolist$type <- rep("promoter", length(promoters))
+  prolist$reps <- hpyA.pks$name[subjectHits(promoters)]
+  pintersect(ig.only[queryHits(promoters)], hpyA.pks[subjectHits(promoters)]) -> overlaps
+  prolist$overlap <- width(overlaps)
+  prolist$peakID <- hpyA.pks$peakID[subjectHits(promoters)]
+  prolist$gene_id <- NA
+    prolist$pk.start <- hpyA.pks.df$start[subjectHits(promoters)]
+  prolist$pk.end <- hpyA.pks.df$end[subjectHits(promoters)]
+  
+  prolist2 <- pro500[queryHits(promoters2)]
+  prolist2$type <- rep("promoter500", length(promoters2))
+  prolist2$reps <- hpyA.pks$name[subjectHits(promoters2)]
+ pintersect(pro500[queryHits(promoters2)], hpyA.pks[subjectHits(promoters2)]) -> overlaps
+prolist2$overlap <- width(overlaps)
+  prolist2$peakID <- hpyA.pks$peakID[subjectHits(promoters2)]
+   prolist2$pk.start <- hpyA.pks.df$start[subjectHits(promoters2)]
+  prolist2$pk.end <- hpyA.pks.df$end[subjectHits(promoters2)]
+
+  #convert seperate IRanges to Dataframes
+  seqs <- seq(1, length(genes))
+  as.data.frame(prolist) -> one
+  rownames(one) <- NULL
+  as.data.frame(genelist, row.names(seqs)) -> two
+  rownames(two) <- NULL
+  as.data.frame(prolist2) -> three
+  rownames(three) <- NULL  
+  
+  #combine dfs (gene hits and promoter hits)
+  #final <- rbind(one, two) %>% arrange(seqnames, start, peakID)
+   final <- dplyr::bind_rows(one, two, three) %>% arrange(seqnames, start, peakID)
+
+
+
+    #colnames(final)[6] <- "locus_tag"
+   #colnames(final)[10] <- "locus_tag"
+colnames(final)[c(2,3,10)] <- c("overlap.start", "overlap.end", "locus_tag")
+  #merge with gff information (get NCBI annotations and locus names)
+ 
+
+gff.df[(gff.df$locus_tag %in% final$locus_tag &  !is.na(gff.df$locus_tag)),] -> tmp
+#tmp <- dplyr::filter (gff.df,  gff.df$locus_tag %in% final$locus_tag, na.rm=TRUE)
+
+  tmp[ c(2,3,4,6,7,10)] -> tmp2
+  left_join(final, tmp2, by = "locus_tag", na.rm=TRUE) -> final.out.logm
+   colnames(final.out.logm)[c(15,16)] <- c("gene.start", "gene.end")
+   final.out.logm$condition <- "lowsalt.exponential"
+```
+  
+#### normal salt, stationary phase
+
+```{r}
+hpyA.pks <- rtracklayer::import("peaklists/Finalmanual_statcm_nogenes.bed", format = "BED")
+  hpyA.pks.df <- as.data.frame(hpyA.pks)
+  
+  #add informative meta data
+  hpyA.pks$peakID <- seq((max(final.out.logm$peakID) + 1), max(final.out.logm$peakID) +length(hpyA.pks))
+  hpyA.pks$peakwidth <- hpyA.pks.df$width
+  
+  #create hits objects of the overlaps (all peak widths have been standardized to 300bp wide. They must overlap a genomic feature by at least one third (100bps) to be called.) adjusting the overlap requirement changes the stringency of my peak annotation. 
+  GenomicRanges::findOverlaps(genes.only, hpyA.pks, ignore.strand=T, minoverlap = 100) -> genes
+  GenomicRanges::findOverlaps(ig.only, hpyA.pks, ignore.strand=T, minoverlap = 100) -> promoters
+  GenomicRanges::findOverlaps(pro500, hpyA.pks, ignore.strand = T, minoverlap = 100) -> promoters2
+  
+  #get IRanges from hits objects and add informative metadata
+  genelist <- genes.only[queryHits(genes)] 
+  genelist$type <- rep("genic", length(genes))
+  genelist$reps <- hpyA.pks$name[subjectHits(genes)]
+  pintersect(genes.only[queryHits(genes)], hpyA.pks[subjectHits(genes)]) -> overlaps
+  genelist$overlap <- width(overlaps)
+  genelist$peakID <- hpyA.pks$peakID[subjectHits(genes)]
+   genelist$pk.start <- hpyA.pks.df$start[subjectHits(genes)]
+  genelist$pk.end <- hpyA.pks.df$end[subjectHits(genes)]
+  
+  prolist <- ig.only[queryHits(promoters)]
+  prolist$type <- rep("promoter", length(promoters))
+  prolist$reps <- hpyA.pks$name[subjectHits(promoters)]
+  pintersect(ig.only[queryHits(promoters)], hpyA.pks[subjectHits(promoters)]) -> overlaps
+  prolist$overlap <- width(overlaps)
+  prolist$peakID <- hpyA.pks$peakID[subjectHits(promoters)]
+ # prolist$gene_id <- NA
+    prolist$pk.start <- hpyA.pks.df$start[subjectHits(promoters)]
+  prolist$pk.end <- hpyA.pks.df$end[subjectHits(promoters)]
+  
+  prolist2 <- pro500[queryHits(promoters2)]
+  prolist2$type <- rep("promoter500", length(promoters2))
+  prolist2$reps <- hpyA.pks$name[subjectHits(promoters2)]
+ pintersect(pro500[queryHits(promoters2)], hpyA.pks[subjectHits(promoters2)]) -> overlaps
+prolist2$overlap <- width(overlaps)
+  prolist2$peakID <- hpyA.pks$peakID[subjectHits(promoters2)]
+   prolist2$pk.start <- hpyA.pks.df$start[subjectHits(promoters2)]
+  prolist2$pk.end <- hpyA.pks.df$end[subjectHits(promoters2)]
+
+
+  #convert seperate IRanges to Dataframes
+  seqs <- seq(1, length(genes))
+  as.data.frame(prolist) -> one
+  rownames(one) <- NULL
+  as.data.frame(genelist, row.names(seqs)) -> two
+  rownames(two) <- NULL
+  as.data.frame(prolist2) -> three
+  rownames(three) <- NULL  
+  
+  #combine dfs (gene hits and promoter hits)
+  #final <- rbind(one, two) %>% arrange(seqnames, start, peakID)
+   final <- dplyr::bind_rows(one, two, three) %>% arrange(seqnames, start, peakID)
+
+
+
+    #colnames(final)[6] <- "locus_tag"
+   colnames(final)[c(2,3,12)] <- c("overlap.start", "overlap.end", "locus_tag")
+
+  #merge with gff information (get NCBI annotations and locus names)
+ 
+
+#gff.df[(gff.df$locus_tag %in% final$locus_tag &  !is.na(gff.df$locus_tag)),] -> tmp
+   gff.df[(gff.df$locus_tag %in% final$locus_tag),] -> tmp
+#tmp <- dplyr::filter (gff.df,  gff.df$locus_tag %in% final$locus_tag, na.rm=TRUE)
+
+  tmp[ c(2,3,4,6,7,10)] -> tmp2
+  left_join(final, tmp2, by = "locus_tag", na.rm=TRUE) -> final.out.statcm
+  colnames(final.out.statcm)[c(15,16)] <- c("gene.start", "gene.end")
+  final.out.statcm$condition <- "optimal.stationary"
+```
+
+####  stationary phase, low salt
+```{r}
+hpyA.pks <- rtracklayer::import("peaklists/Finalmanual_statlow_nogenes.bed", format = "BED")
+  hpyA.pks.df <- as.data.frame(hpyA.pks)
+  
+  #add informative meta data
+  hpyA.pks$peakID <- seq((max(final.out.statcm$peakID) + 1), max(final.out.statcm$peakID) +length(hpyA.pks))
+  hpyA.pks$peakwidth <- hpyA.pks.df$width
+  
+  #create hits objects of the overlaps (all peak widths have been standardized to 300bp wide. They must overlap a genomic feature by at least one third (100bps) to be called.) adjusting the overlap requirement changes the stringency of my peak annotation. 
+  GenomicRanges::findOverlaps(genes.only, hpyA.pks, ignore.strand=T, minoverlap = 100) -> genes
+  GenomicRanges::findOverlaps(ig.only, hpyA.pks, ignore.strand=T, minoverlap = 100) -> promoters
+  GenomicRanges::findOverlaps(pro500, hpyA.pks, ignore.strand = T, minoverlap = 100) -> promoters2
+  
+  #get IRanges from hits objects and add informative metadata
+  genelist <- genes.only[queryHits(genes)] 
+  genelist$type <- rep("genic", length(genes))
+  genelist$reps <- hpyA.pks$name[subjectHits(genes)]
+  pintersect(genes.only[queryHits(genes)], hpyA.pks[subjectHits(genes)]) -> overlaps
+  genelist$overlap <- width(overlaps)
+  genelist$peakID <- hpyA.pks$peakID[subjectHits(genes)]
+   genelist$pk.start <- hpyA.pks.df$start[subjectHits(genes)]
+  genelist$pk.end <- hpyA.pks.df$end[subjectHits(genes)]
+  
+  prolist <- ig.only[queryHits(promoters)]
+  prolist$type <- rep("promoter", length(promoters))
+  prolist$reps <- hpyA.pks$name[subjectHits(promoters)]
+  pintersect(ig.only[queryHits(promoters)], hpyA.pks[subjectHits(promoters)]) -> overlaps
+  prolist$overlap <- width(overlaps)
+  prolist$peakID <- hpyA.pks$peakID[subjectHits(promoters)]
+  prolist$gene_id <- NA
+   prolist$pk.start <- hpyA.pks.df$start[subjectHits(promoters)]
+  prolist$pk.end <- hpyA.pks.df$end[subjectHits(promoters)]
+  
+  
+  prolist2 <- pro500[queryHits(promoters2)]
+  prolist2$type <- rep("promoter500", length(promoters2))
+  prolist2$reps <- hpyA.pks$name[subjectHits(promoters2)]
+ pintersect(pro500[queryHits(promoters2)], hpyA.pks[subjectHits(promoters2)]) -> overlaps
+prolist2$overlap <- width(overlaps)
+  prolist2$peakID <- hpyA.pks$peakID[subjectHits(promoters2)]
+   prolist2$pk.start <- hpyA.pks.df$start[subjectHits(promoters2)]
+  prolist2$pk.end <- hpyA.pks.df$end[subjectHits(promoters2)]
+
+  #convert seperate IRanges to Dataframes
+  seqs <- seq(1, length(genes))
+  as.data.frame(prolist) -> one
+  rownames(one) <- NULL
+  as.data.frame(genelist, row.names(seqs)) -> two
+  rownames(two) <- NULL
+  as.data.frame(prolist2) -> three
+  rownames(three) <- NULL  
+  
+  #combine dfs (gene hits and promoter hits)
+  #final <- rbind(one, two) %>% arrange(seqnames, start, peakID)
+   final <- dplyr::bind_rows(one, two, three) %>% arrange(seqnames, start, peakID)
+
+
+
+    #colnames(final)[6] <- "locus_tag"
+   colnames(final)[c(2,3,10)] <- c("overlap.start", "overlap.end", "locus_tag")
+
+  #merge with gff information (get NCBI annotations and locus names)
+ 
+
+gff.df[(gff.df$locus_tag %in% final$locus_tag &  !is.na(gff.df$locus_tag)),] -> tmp
+#tmp <- dplyr::filter (gff.df,  gff.df$locus_tag %in% final$locus_tag, na.rm=TRUE)
+
+  tmp[ c(2,3,4,6,7,10)] -> tmp2
+  left_join(final, tmp2, by = "locus_tag", na.rm=TRUE) -> final.out.statm
+  colnames(final.out.statm)[c(15,16)] <- c("gene.start", "gene.end")
+  final.out.statm$condition <- "lowsalt.stationary"
+```
+
+#### write final output file  (supplementary table ST3)
+```{r}
+out.allconditions <- dplyr::bind_rows(final.out.logcm, final.out.logm, final.out.statcm, final.out.statm)
+write.table(out.allconditions, file  = "peaklists/hpyA_peaks_annotated.txt", sep = "\t")
+
+#note that some chromosomal regions are bound across multiple conditions. here these peaks have been assigned different peak IDs. 
+#note that this list includes the artifactual HA binding peaks at VNG0194H. The genes VNG0195H, VNG0192G, VNG0194H were removed from final output file.
+```
