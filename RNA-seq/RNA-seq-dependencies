@@ -1,16 +1,20 @@
 RNA-seq analysis code dependencies in R:
 
 R version 4.1.1
-ggplot2
-DESeq2
-apeglm
-regionReport
-DT
-ggrepel
-RColorBrewer
-pheatmap
-dendextend
-rrcov
-bazar
-VennDiagram
+tidyverse_1.3.0
+ggplot2_3.3.3
+DESeq2_1.30.1
+apeglm_1.12.0
+regionReport_1.24.2
+DT_0.17
+ggrepel_0.9.1
+RColorBrewer_1.1-2
+pheatmap_1.0.12
+dendextend_1.14.0
+ggplot2_3.3.3
+forcats_0.5.0
+readxl_1.3.1
+readr_1.4.0
+pheatmap_1.0.12
+factoextra_1.0.7
 
