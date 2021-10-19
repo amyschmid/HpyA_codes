@@ -1,3 +1,10 @@
+
+* FastQC
+* SAMTools
+* Bowtie2
+* TrimGalore!
+* HTSeq
+
 RNA-seq analysis code dependencies in R:
 
 R version 4.1.1
