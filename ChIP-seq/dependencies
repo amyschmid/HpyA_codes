@@ -4,7 +4,6 @@ Package dependencies and versions for ChIP-seq analysis in command line
 * SAMTools
 * Bowtie2
 * TrimGalore!
-* FastQC 
 * MACS2 v 2.1.1
 
 Package dependencies and versions for ChIP-seq analysis and visualization in R (v 4.1.1):
