@@ -1,9 +1,11 @@
 
-* FastQC
-* SAMTools
-* Bowtie2
-* TrimGalore!
-* HTSeq
+
+
+* FastQC v0.11.5
+* SAMTools v1.7 using htslib 1.7-2
+* Bowtie2 v2.3.4.1
+* TrimGalore! v0.4.5 using Cutadapt v0.4.4_dev
+* HTSeq 0.6.1p1
 
 RNA-seq analysis code dependencies in R:
 
