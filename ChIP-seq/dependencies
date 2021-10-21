@@ -1,9 +1,9 @@
-Package dependencies and versions for ChIP-seq analysis in command line
+Package dependencies and versions for ChIP-seq analysis in command line:
 * BEDTools version 2.30.0
-* FastQC
-* SAMTools
-* Bowtie2
-* TrimGalore!
+* FastQC v0.11.5
+* SAMTools v1.7 using htslib 1.7-2
+* Bowtie2 v2.3.4.1
+* TrimGalore! v0.4.5 using Cutadapt v0.4.4_dev
 * MACS2 v 2.1.1
 
 Package dependencies and versions for ChIP-seq analysis and visualization in R (v 4.1.1):
