@@ -1,0 +1,143 @@
+---
+title: "Peaklocationtypes_Nov_all"
+author: "Saaz Sakrikar and Amy Schmid"
+date: "11/16/2021"
+output: html_document
+---
+
+This code is used to classify peak binding locations into 2 categories- coding or intergenic, based on where the centre of the peak lies.
+
+Input files include a list of peaks (Table S3 of the paper), the NCBI protein table (list of genes) in xlsx format, a vector containing the names of replicons (chromosomes/plasmids) that have peaks, and a name (to name the output file).
+
+Output is a matrix with 1 row corresponding to each peak, containing the replicon it is from, the peak centre, its classification (inter vs coding), and if it's coding, the gene it is found within.
+
+The code then considers previously published Hbt TFs - TrmB and RosR, and the locations of their binding peaks. A hypergeometric test for enrichment within intergenic regions is calculated for all 3.
+
+The output of these tests - the %age of genes in intergenic regions, and the p-value hypergeometric enrichments - have been stored in a file called promoter-percentage-hbt-only.xlsx. This is read in and a bar graph is made (Fig 4 of the paper).
+
+
+```{r setup, warning=FALSE,message=FALSE}
+suppressPackageStartupMessages(library(installr))
+suppressPackageStartupMessages(library(readxl))
+suppressPackageStartupMessages(library(openxlsx))
+suppressPackageStartupMessages(library(ggplot2))
+
+Name="Hbtsal_hpyA"
+Hits=read_excel("TableS3_ChIP-seq_operons-nonredundant-2021-08-SS.xlsx",sheet = "Basic_S3")
+NCBIProteintable=read_excel("proteins_1051_300503.xlsx")
+chrnames=c("NC_002607.1","NC_001869.1","NC_002608.1")
+```
+
+
+```{r determinelocations}
+nchr=length(chrnames)
+
+#Setting up the output matrix
+outputmatrix=as.data.frame(matrix(nrow=1,ncol=4))
+colnames(outputmatrix)=c("Chromosome","Peakcentre","Location","Gene")
+
+#Code goes through each replicon (chromosome or plasmid)
+
+for (i in (1:nchr)) {
+  #Restricting data to one replicon
+  Hits_replicon=Hits[Hits$Replicon==chrnames[i],]
+  Genes=NCBIProteintable[NCBIProteintable$Accession==chrnames[i],]
+  
+  #Getting peak centres
+  Peakstarts=Hits_replicon$pk.start
+  Peakstops=Hits_replicon$pk.end
+  Peaks=cbind(Peakstarts,Peakstops)
+  Peakcentres=rowMeans(Peaks)
+  
+  #Setting up output matrix for this replicon
+  l=length(Peakcentres)
+  chroutput=as.data.frame(matrix(nrow=l,ncol=4))
+  colnames(chroutput)=c("Chromosome","Peakcentre","Location","Gene")
+  
+  chroutput$Chromosome=chrnames[i]
+  chroutput$Peakcentre=Peakcentres
+  
+  #Determining if each peak is intergenic or coding. If a gene is common in a (the peak is after the gene's start) and b (the peak is before the gene's stop), that  means the peak lies within that gene. This is what the intersect command tells us.
+  for (j in (1:l)) {
+    a=which((chroutput$Peakcentre[j]-Genes$Start)>0)
+    b=which((chroutput$Peakcentre[j]-Genes$Stop)<0)
+    genehits=intersect(a,b)
+    if (is.empty(genehits)) {
+      chroutput$Location[j]="Intergenic"
+    } else {
+      chroutput$Location[j]="Coding"
+      chroutput$Gene[j]=Genes$`Locus tag`[genehits]
+    }
+  }
+  outputmatrix=rbind(outputmatrix,chroutput)
+}
+
+#First line is blank.
+outputmatrix=outputmatrix[-1,]
+```
+
+Display output table and summary of results, export a table with this output
+
+```{r display}
+head(outputmatrix)
+
+table(outputmatrix$Location)
+
+write.xlsx(outputmatrix,paste(Name,"_peaklocations.xlsx",sep=""),overwrite=TRUE)
+```
+
+ig vs genic binding locations for Hbt. RosR (Table S2 Tonner et al., 2015 https://doi.org/10.1371/journal.pgen.1004912) and p-value detected and calculated using bedtools fisher test. 
+commands:  bedtools fisher -a hbt.rosr-pks-unique.bed -b ig.only.hbt.bed -g hbt.genome
+
+
+
+ig vs genic binding locations for Hbt. TrmB are located in Table S4 Schmid et al., 2009. https://www.embopress.org/doi/full/10.1038/msb.2009.40
+
+
+hypergeometric test to determine the significance of enrichment for binding in non-coding intergenic regions
+
+```{r}
+#the code above was re-run for all TFs to calculate the number of peaks in non-coding regions vs genic regions. 
+#hbt hpyA
+hbt.hpyA <- phyper (9, 341900, 2229110, 59, lower.tail = FALSE)
+hbt.trmB <- phyper (66, 341900, 2229110, 113, lower.tail = FALSE)
+hbt.rosR <- phyper  (120, 341900, 2229110, 177, lower.tail = FALSE) #more conservative p-value from fisher's test reported in manuscript, i.e. 3.74 e-37
+
+
+#hpyA genic enrichment - not enriched
+phyper(50, 2229110, 341900, 59, lower.tail = FALSE)
+
+
+
+hyperg.hbt.TFs<-cbind(hbt.hpyA, hbt.trmB, hbt.rosR)
+write.table (hyperg.hbt.TFs, file = "TFs.hyperG.hbt.txt", sep = "\t")
+```
+
+# Plot the results (Figure 4)
+```{r}
+
+
+pdf("Fig4-Hbt.pdf", width = 8, height = 5)
+Peaklocoutput <- read_excel("promoter-percentage-Hbt-only.xlsx") 
+  
+ggplot(Peaklocoutput, aes(x=reorder(TF, Percentage), y=Percentage, fill = neg.log.p)) +
+  geom_bar(stat="identity", width = 0.4) +
+  #theme_bw() +
+  theme(panel.background = element_rect("grey80")) +
+  scale_fill_gradient(low = "white",high = "purple4", limits = c(0.2,37))  +
+  ylim (0,100) +
+  #scale_color_manual(neg.log.p = c("cyan", "white")) + 
+  ylab("Percentage intergenic peaks") +
+  xlab ("Species and TF") +
+  geom_text(aes(label=pval), vjust=0)
+  
+  
+
+
+dev.off()
+
+```
+
+```{r session}
+sessionInfo()
+```
