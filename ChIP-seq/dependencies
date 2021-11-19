@@ -32,3 +32,5 @@ Package dependencies and versions for ChIP-seq analysis and visualization in R (
 * tibble_3.1.5          
 * ggplot2_3.3.5          
 * tidyverse_1.3.1 
+* installr_0.23.2 
+* readxl_1.3.1
